@@ -14,9 +14,10 @@ from src import redis
 # from src.auth.router import router as auth_router
 from src.config import app_configs, settings
 from src.database import database
+from src.info_user.router import router as info_user_router
 
 # from src.hello_word.router import router as hello_word_router
-from src.register.router import router as register_router
+from src.auth.router import router as register_router
 
 app = FastAPI(**app_configs)
 
@@ -70,5 +71,10 @@ async def healthcheck() -> dict[str, str]:
 
 app.include_router(
     register_router,
-    prefix="/register",
+    prefix="/auth",
+)
+
+app.include_router(
+    info_user_router,
+    prefix="/info_user",
 )

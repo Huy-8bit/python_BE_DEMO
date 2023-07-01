@@ -12,15 +12,18 @@ from src.auth.schemas import JWTData
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/users/tokens", auto_error=False)
 
 
+class userType:
+    id: str
+
+
 def create_access_token(
     *,
-    user: Record,
+    id: str,
     expires_delta: timedelta = timedelta(minutes=auth_config.JWT_EXP),
 ) -> str:
     jwt_data = {
-        "sub": str(user["id"]),
+        "sub": id,
         "exp": datetime.utcnow() + expires_delta,
-        "is_admin": user["is_admin"],
     }
 
     return jwt.encode(jwt_data, auth_config.JWT_SECRET, algorithm=auth_config.JWT_ALG)
@@ -39,7 +42,7 @@ async def parse_jwt_user_data_optional(
     except JWTError:
         raise InvalidToken()
 
-    return JWTData(**payload)
+    return payload
 
 
 async def parse_jwt_user_data(

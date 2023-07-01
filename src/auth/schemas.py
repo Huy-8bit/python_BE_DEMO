@@ -26,8 +26,7 @@ class AuthUser(ORJSONModel):
 
 
 class JWTData(ORJSONModel):
-    user_id: int = Field(alias="sub")
-    is_admin: bool = False
+    id: str
 
 
 class AccessTokenResponse(ORJSONModel):

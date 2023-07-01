@@ -1,78 +1,98 @@
-from databases.interfaces import Record
-from fastapi import APIRouter, BackgroundTasks, Depends, Response, status
-
-from src.auth import jwt, service, utils
-from src.auth.dependencies import (
-    valid_refresh_token,
-    valid_refresh_token_user,
-    valid_user_create,
-)
-from src.auth.jwt import parse_jwt_user_data
-from src.auth.schemas import AccessTokenResponse, AuthUser, JWTData, UserResponse
+from fastapi import APIRouter, BackgroundTasks, Depends, Response, status, Request
+from fastapi.responses import JSONResponse
+from src.database import database
+from src.auth.jwt import *
 
 router = APIRouter()
 
-
-@router.post("/users", status_code=status.HTTP_201_CREATED, response_model=UserResponse)
-async def register_user(
-    auth_data: AuthUser = Depends(valid_user_create),
-) -> dict[str, str]:
-    user = await service.create_user(auth_data)
-    return {
-        "email": user["email"],  # type: ignore
-    }
+import hashlib
 
 
-@router.get("/users/me", response_model=UserResponse)
-async def get_my_account(
-    jwt_data: JWTData = Depends(parse_jwt_user_data),
-) -> dict[str, str]:
-    user = await service.get_user_by_id(jwt_data.user_id)
+def hash_password(password):
+    # Create a new SHA3_256 hash object
+    hash_object = hashlib.sha3_256()
 
-    return {
-        "email": user["email"],  # type: ignore
-    }
+    # Hash the password by encoding it as UTF-8 and updating the hash object
+    hash_object.update(password.encode("utf-8"))
 
+    # Get the hexadecimal representation of the hash
+    hashed_password = hash_object.hexdigest()
 
-@router.post("/users/tokens", response_model=AccessTokenResponse)
-async def auth_user(auth_data: AuthUser, response: Response) -> AccessTokenResponse:
-    user = await service.authenticate_user(auth_data)
-    refresh_token_value = await service.create_refresh_token(user_id=user["id"])
-
-    response.set_cookie(**utils.get_refresh_token_settings(refresh_token_value))
-
-    return AccessTokenResponse(
-        access_token=jwt.create_access_token(user=user),
-        refresh_token=refresh_token_value,
-    )
+    return hashed_password
 
 
-@router.put("/users/tokens", response_model=AccessTokenResponse)
-async def refresh_tokens(
-    worker: BackgroundTasks,
-    response: Response,
-    refresh_token: Record = Depends(valid_refresh_token),
-    user: Record = Depends(valid_refresh_token_user),
-) -> AccessTokenResponse:
-    refresh_token_value = await service.create_refresh_token(
-        user_id=refresh_token["user_id"]
-    )
-    response.set_cookie(**utils.get_refresh_token_settings(refresh_token_value))
-
-    worker.add_task(service.expire_refresh_token, refresh_token["uuid"])
-    return AccessTokenResponse(
-        access_token=jwt.create_access_token(user=user),
-        refresh_token=refresh_token_value,
-    )
+def check_id_Account(data):
+    result = database.get_collection("account").find_one({"id": data["id"]})
+    if result:
+        return True
+    else:
+        return False
 
 
-@router.delete("/users/tokens")
-async def logout_user(
-    response: Response,
-    refresh_token: Record = Depends(valid_refresh_token),
-) -> None:
-    await service.expire_refresh_token(refresh_token["uuid"])
+def check_login(data):
+    result = database.get_collection("account").find_one({"id": data["id"]})
+    if result:
+        if result["password"] == hash_password(data["password"]):
+            return True
+        else:
+            return False
+    else:
+        return False
 
-    response.delete_cookie(
-        **utils.get_refresh_token_settings(refresh_token["refresh_token"], expired=True)
-    )
+
+@router.post("/newaccount")
+async def test(request: Request):
+    data = await request.json()
+    ## data format: {"id": "abc", "password": "123"}
+    if check_id_Account(data):
+        result = {"message": "Account already exists"}
+        return JSONResponse(content=result, status_code=status.HTTP_404_NOT_FOUND)
+    else:
+        password = data["password"]
+        hashed_password = hash_password(password)
+        data_input_db = {"id": data["id"], "password": hashed_password}
+        database.get_collection("account").insert_one(data_input_db)
+
+        return JSONResponse(content={"message": "Done"}, status_code=status.HTTP_200_OK)
+
+
+@router.get("/login")
+async def login(request: Request):
+    data = await request.json()
+    if check_login(data):
+        access_token = create_access_token(id=data["id"])
+        result = {
+            "message": "Login success",
+            "access_token": access_token,
+        }
+        return JSONResponse(content=result, status_code=status.HTTP_200_OK)
+
+    else:
+        result = {"message": "Login failed"}
+        return JSONResponse(content=result, status_code=status.HTTP_401_UNAUTHORIZED)
+
+
+@router.post("/editPassword")
+async def editPassword(request: Request):
+    data = await request.json()
+    data_header = request.headers["signature"]
+    check_access_token = await parse_jwt_user_data_optional(data_header)
+
+    if check_id_Account(data):
+        password = data["password"]
+        hashed_password = hash_password(password)
+
+        database.get_collection("account").update_one(
+            {"id": data["id"]}, {"$set": {"password": hashed_password}}
+        )
+        result = {"message": "Edit password success"}
+        return JSONResponse(content=result, status_code=status.HTTP_200_OK)
+    else:
+        result = {"message": "Account not exists"}
+        return JSONResponse(content=result, status_code=status.HTTP_401_UNAUTHORIZED)
+
+
+@router.get("/get")
+def get():
+    data = {"message": "Hello World"}
+    return JSONResponse(content=data, status_code=status.HTTP_200_OK)
